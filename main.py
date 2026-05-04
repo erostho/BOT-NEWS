@@ -41,7 +41,7 @@ ENABLE_X = os.getenv("ENABLE_X", "true").lower() == "true"
 ENABLE_NEWSAPI = os.getenv("ENABLE_NEWSAPI", "true").lower() == "true"
 ENABLE_REDDIT = os.getenv("ENABLE_REDDIT", "true").lower() == "true"
 ENABLE_GDELT = os.getenv("ENABLE_GDELT", "true").lower() == "true"
-
+ENABLE_TG_SOURCE = os.getenv("ENABLE_TG_SOURCE", "false").lower() == "true"
 MAIN_LOOP_SLEEP = int(os.getenv("MAIN_LOOP_SLEEP", "10"))
 GDELT_INTERVAL = int(os.getenv("GDELT_INTERVAL", "120"))
 REDDIT_INTERVAL = int(os.getenv("REDDIT_INTERVAL", "300"))
