@@ -10,7 +10,7 @@ import urllib.parse
 import feedparser
 import requests
 from dotenv import load_dotenv
-
+from telethon.sync import TelegramClient
 try:
     import tweepy
 except Exception:
