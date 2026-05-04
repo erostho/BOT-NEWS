@@ -729,7 +729,9 @@ def fetch_telegram_channels():
         try:
             last_id = tg_last_id.get(ch, 0)
 
-            messages = tg_client.get_messages(ch, limit=5)
+            messages = tg_client.loop.run_until_complete(
+                tg_client.get_messages(ch, limit=5)
+            )
 
             for msg in messages:
                 if not msg.text:
