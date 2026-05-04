@@ -274,7 +274,28 @@ def build_action_by_asset(items):
     else:
         btc = "WAIT"
 
-    return xau, oil, btc    
+    return xau, oil, btc
+
+# =====================
+# =====================
+# FLASH FLAG
+# =====================
+
+def build_flash_flag(items):
+    text = " ".join([full_text(i) for i in items])
+
+    trump_keys = [
+        "trump",
+        "donald trump",
+        "truth social",
+        "@realdonaldtrump",
+        "president trump",
+    ]
+
+    if any(k in text for k in trump_keys):
+        return "🚨 FLASH: TRUMP MENTIONED / POSSIBLE TRUTH SOCIAL IMPACT"
+
+    return None
 def utc_now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
@@ -438,7 +459,10 @@ def build_digest(items):
     top_items = items[:3]
 
     msg = "🔥 BREAKING GEO ALERT\n\n"
-
+    flash = build_flash_flag(items)
+    if flash:
+        msg += f"{flash}\n"
+        msg += "⚡ Priority: TELEGRAM > RSS > GDELT\n\n"
     # QUICK TAKE
     quick = build_quick_take(items)
 
@@ -642,7 +666,78 @@ def fetch_newsapi():
         logger.exception("[NEWSAPI] error: %s", e)
         return []
 
+# =====================
+# TELEGRAM OSINT SOURCE
+# =====================
 
+from telethon import TelegramClient
+
+tg_client = None
+tg_buffer = []
+tg_last_id = {}
+
+def init_telegram_client():
+    global tg_client
+
+    if not ENABLE_TG_SOURCE:
+        return
+
+    try:
+        tg_client = TelegramClient(
+            "tg_session",
+            int(os.getenv("TG_API_ID")),
+            os.getenv("TG_API_HASH"),
+        )
+
+        tg_client.start()
+        logger.info("[TG] client started")
+
+    except Exception as e:
+        logger.error("[TG] init error: %s", e)
+
+
+def fetch_telegram_channels():
+    if not ENABLE_TG_SOURCE or not tg_client:
+        return []
+
+    channels = os.getenv("TG_CHANNELS", "").split(",")
+    items = []
+
+    for ch in channels:
+        ch = ch.strip()
+        if not ch:
+            continue
+
+        try:
+            last_id = tg_last_id.get(ch, 0)
+
+            messages = tg_client.get_messages(ch, limit=5)
+
+            for msg in messages:
+                if not msg.text:
+                    continue
+
+                if msg.id <= last_id:
+                    continue
+
+                items.append(
+                    normalize_item(
+                        source="TELEGRAM",
+                        title=msg.text[:200],
+                        text=msg.text,
+                        url=f"https://t.me/{ch}/{msg.id}",
+                        raw_source=ch,
+                        published_at=str(msg.date),
+                    )
+                )
+
+                tg_last_id[ch] = max(tg_last_id.get(ch, 0), msg.id)
+
+        except Exception as e:
+            logger.warning("[TG] error channel=%s err=%s", ch, e)
+
+    logger.info("[TG] fetched=%s", len(items))
+    return items
 # =====================
 # FETCH REDDIT
 # =====================
@@ -879,7 +974,7 @@ def run_worker():
     global last_sent_at
 
     load_seen()
-
+    init_telegram_client()
     logger.info("===== GEO REALTIME WORKER STARTED =====")
     logger.info(
         "X=%s | X_STREAM=%s | RSS=%s | GDELT=%s | REDDIT=%s | NEWSAPI=%s",
@@ -903,7 +998,8 @@ def run_worker():
         try:
             now = time.time()
             all_items = []
-
+            if ENABLE_TG_SOURCE:
+                all_items += fetch_telegram_channels()
             # Realtime X buffer
             all_items += drain_x_buffer()
             if ENABLE_X and not ENABLE_X_STREAM and now - last_x_search >= X_SEARCH_INTERVAL:
