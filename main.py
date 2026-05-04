@@ -282,18 +282,36 @@ def build_action_by_asset(items):
 # =====================
 
 def build_flash_flag(items):
-    text = " ".join([full_text(i) for i in items])
-
-    trump_keys = [
-        "trump",
-        "donald trump",
+    direct_post_keys = [
         "truth social",
         "@realdonaldtrump",
-        "president trump",
+        "trump posted",
+        "trump wrote",
+        "trump says on truth social",
+        "trump said on truth social",
+        "trump posts",
+        "trump post",
     ]
 
-    if any(k in text for k in trump_keys):
-        return "🚨 FLASH: TRUMP MENTIONED / POSSIBLE TRUTH SOCIAL IMPACT"
+    mention_only_keys = [
+        "trump says",
+        "trump said",
+        "president trump says",
+        "president trump said",
+    ]
+
+    for item in items:
+        text = full_text(item)
+        source = item.get("source", "").lower()
+        raw = item.get("raw_source", "").lower()
+
+        # Chỉ ưu tiên cao nếu là Telegram OSINT/RSS bắt lại bài đăng trực tiếp
+        if any(k in text for k in direct_post_keys):
+            return "🚨 FLASH: TRUMP DIRECT POST / TRUTH SOCIAL IMPACT"
+
+        # Nếu chỉ là báo nói "Trump says..." thì flag nhẹ hơn, không gọi là direct post
+        if any(k in text for k in mention_only_keys):
+            return "⚡ FLASH: TRUMP MENTIONED BY NEWS SOURCE"
 
     return None
 def utc_now():
