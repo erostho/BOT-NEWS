@@ -123,8 +123,15 @@ last_sent_at = 0
 # PRO OUTPUT MODULE
 # =====================
 
-TRUST_HIGH = ["reuters", "ap", "associated press", "bloomberg", "bbc", "cnbc"]
-TRUST_MEDIUM = ["al jazeera", "guardian", "cnn", "globalsecurity"]
+TRUST_HIGH = [
+    "reuters", "ap", "associated press", "bloomberg", "bbc", "cnbc",
+    "channelnewsasia", "channelnewsasia.com", "cna"
+]
+
+TRUST_MEDIUM = [
+    "al jazeera", "guardian", "cnn", "globalsecurity",
+    "capitalgazette", "leadertelegram"
+]
 
 def get_trust_level(item):
     raw = item.get("raw_source", "").lower()
@@ -380,7 +387,7 @@ def build_digest(items):
     for i, item in enumerate(top_items, 1):
         trust = get_trust_level(item)
 
-        msg += f"{i}. {alert_level(item['score'])} | Score: {item['score']}\n"
+        msg += f"{i}. {alert_level(item['score'])} | Risk Score: {item['score']}\n"
         msg += f"Source: {item.get('raw_source', '')} {trust}\n"
         msg += f"Title: {item.get('title', '')[:200]}\n"
 
@@ -397,9 +404,9 @@ def build_digest(items):
 
     msg += "⚠️ Note:\n"
     if not has_high:
-        msg += "Chưa có xác nhận từ Reuters/AP → cẩn trọng fake / bias"
+        msg += "Chưa có xác nhận từ Reuters/AP/Bloomberg/BBC/CNA → cẩn trọng fake / bias"
     else:
-        msg += "Đã có nguồn uy tín xác nhận → có thể cân nhắc hành động"
+        msg += "Có nguồn uy tín đưa tin, nhưng vẫn cần xác nhận phản ứng giá trước khi vào lệnh."
 
     return msg
 
