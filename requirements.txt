@@ -1,4 +1,6 @@
+
 requests
 tweepy
 praw
 python-dotenv
+feedparser
