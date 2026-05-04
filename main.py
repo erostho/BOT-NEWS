@@ -228,7 +228,48 @@ def build_action(items):
         return "PREPARE (có thể vào)"
 
     return "WAIT (chưa rõ)"
-    
+# =====================
+# ACTION BY ASSET (PRO)
+# =====================
+
+def build_action_by_asset(items):
+    text = " ".join([full_text(i) for i in items])
+
+    # kiểm tra nguồn uy tín
+    has_high = any(
+        any(x in i.get("raw_source", "").lower() for x in TRUST_HIGH)
+        for i in items
+    )
+
+    has_attack = any(k in text for k in ["missile", "attack", "strike", "warship"])
+    has_hormuz = "hormuz" in text
+    has_opec = "opec" in text
+
+    # ===== XAU =====
+    if has_attack and has_high:
+        xau = "BUY MẠNH"
+    elif has_hormuz:
+        xau = "BUY (chờ confirm)"
+    else:
+        xau = "WAIT"
+
+    # ===== OIL =====
+    if has_hormuz and not has_opec:
+        oil = "BUY MẠNH"
+    elif has_hormuz and has_opec:
+        oil = "SCALE BUY (xung đột tin)"
+    else:
+        oil = "WAIT"
+
+    # ===== BTC =====
+    if has_attack:
+        btc = "SELL NGẮN HẠN (cẩn thận trap)"
+    elif has_hormuz:
+        btc = "WAIT (dễ nhiễu)"
+    else:
+        btc = "WAIT"
+
+    return xau, oil, btc    
 def utc_now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
@@ -408,11 +449,14 @@ def build_digest(items):
     msg += f"🛢 Oil: {oil}\n"
     msg += f"₿ BTC: {btc}\n"
     msg += f"💵 USD: {usd}\n"
-    # ACTION
-    action = build_action(items)
+
+    # ACTION BY ASSET
+    xau, oil, btc = build_action_by_asset(items)
     
-    msg += "\n🎯 ACTION:\n"
-    msg += f"- {action}\n"
+    msg += "\n🎯 ACTION (Ref):\n"
+    msg += f"🟡 XAU: {xau}\n"
+    msg += f"🛢 OIL: {oil}\n"
+    msg += f"₿ BTC: {btc}\n"
     # CLUSTER
     cluster = detect_cluster(items)
     msg += f"\n📦 CLUSTER: {cluster} ({len(items)} sources)\n\n"
