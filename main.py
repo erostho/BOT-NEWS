@@ -119,7 +119,79 @@ last_sent_at = 0
 # =====================
 # UTILS
 # =====================
+# =====================
+# PRO OUTPUT MODULE
+# =====================
 
+TRUST_HIGH = ["reuters", "ap", "associated press", "bloomberg", "bbc", "cnbc"]
+TRUST_MEDIUM = ["al jazeera", "guardian", "cnn", "globalsecurity"]
+
+def get_trust_level(item):
+    raw = item.get("raw_source", "").lower()
+
+    if any(x in raw for x in TRUST_HIGH):
+        return "✅ HIGH TRUST"
+    if any(x in raw for x in TRUST_MEDIUM):
+        return "⚠️ MEDIUM TRUST"
+    return "❓ LOW TRUST"
+
+
+def build_quick_take(items):
+    text = " ".join([full_text(i) for i in items])
+    lines = []
+
+    if "hormuz" in text:
+        lines.append("Iran đang siết kiểm soát Hormuz")
+
+    if "tanker" in text or "oil" in text:
+        lines.append("Nguy cơ gián đoạn nguồn cung dầu")
+
+    if any(k in text for k in ["missile", "attack", "warship"]):
+        lines.append("Có dấu hiệu leo thang quân sự")
+
+    has_high = any(
+        any(x in i.get("raw_source", "").lower() for x in TRUST_HIGH)
+        for i in items
+    )
+
+    if not has_high:
+        lines.append("CHƯA có xác nhận từ Reuters/AP")
+
+    return lines
+
+
+def build_market_bias(items):
+    text = " ".join([full_text(i) for i in items])
+
+    gold = "➖ Neutral"
+    oil = "➖ Neutral"
+    btc = "➖ Neutral"
+    usd = "➖ Neutral"
+
+    if "hormuz" in text:
+        gold = "⬆️ Tăng mạnh"
+        oil = "🚀 Tăng rất mạnh"
+        btc = "⚠️ Biến động mạnh"
+        usd = "⬆️ Tăng"
+
+    if any(k in text for k in ["missile", "attack", "warship"]):
+        gold = "🚀 Tăng mạnh"
+        oil = "⬆️ Tăng"
+        btc = "⬇️ Dễ giảm trước"
+        usd = "⬆️ Tăng mạnh"
+
+    return gold, oil, btc, usd
+
+
+def detect_cluster(items):
+    text = " ".join([full_text(i) for i in items])
+
+    if "hormuz" in text:
+        return "Hormuz escalation"
+    if "iran" in text:
+        return "Iran geopolitical tension"
+
+    return "Geopolitical event"
 def utc_now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
@@ -279,34 +351,57 @@ def build_digest(items):
     if not items:
         return None
 
-    top_score = max(i["score"] for i in items)
-    header = alert_level(top_score)
+    items = sorted(items, key=lambda x: x["score"], reverse=True)
+    top_items = items[:3]
 
-    msg = f"{header}\n"
-    msg += "🌍 Topic: Hormuz / Iran / US Navy / Oil Tanker\n"
-    msg += f"🕒 Time: {utc_now()}\n"
-    msg += f"🧾 New items: {len(items)}\n\n"
+    msg = "🔥 BREAKING GEO ALERT\n\n"
 
-    for idx, item in enumerate(items, 1):
-        level = alert_level(item["score"])
+    # QUICK TAKE
+    quick = build_quick_take(items)
 
-        msg += f"{idx}. {level} | Score: {item['score']}\n"
-        msg += f"Source: {item.get('source')} / {item.get('raw_source', '')}\n"
+    msg += "🧠 QUICK TAKE:\n"
+    for q in quick:
+        msg += f"• {q}\n"
 
-        if item.get("published_at"):
-            msg += f"Time: {item.get('published_at')}\n"
+    # MARKET
+    gold, oil, btc, usd = build_market_bias(items)
 
-        msg += f"Title: {item.get('title', '')[:450]}\n"
+    msg += "\n📊 MARKET BIAS:\n"
+    msg += f"🟡 Gold: {gold}\n"
+    msg += f"🛢 Oil: {oil}\n"
+    msg += f"₿ BTC: {btc}\n"
+    msg += f"💵 USD: {usd}\n"
+
+    # CLUSTER
+    cluster = detect_cluster(items)
+    msg += f"\n📦 CLUSTER: {cluster} ({len(items)} sources)\n\n"
+
+    # ITEMS
+    for i, item in enumerate(top_items, 1):
+        trust = get_trust_level(item)
+
+        msg += f"{i}. {alert_level(item['score'])} | Score: {item['score']}\n"
+        msg += f"Source: {item.get('raw_source', '')} {trust}\n"
+        msg += f"Title: {item.get('title', '')[:200]}\n"
 
         if item.get("url"):
             msg += f"Link: {item.get('url')}\n"
 
         msg += "\n"
 
-    msg += "⚠️ Note: X/Reddit/GDELT là tín hiệu sớm; cần Reuters/AP/Bloomberg hoặc nguồn chính thống xác nhận trước khi vào lệnh lớn."
+    # NOTE
+    has_high = any(
+        any(x in i.get("raw_source", "").lower() for x in TRUST_HIGH)
+        for i in items
+    )
+
+    msg += "⚠️ Note:\n"
+    if not has_high:
+        msg += "Chưa có xác nhận từ Reuters/AP → cẩn trọng fake / bias"
+    else:
+        msg += "Đã có nguồn uy tín xác nhận → có thể cân nhắc hành động"
 
     return msg
-
 
 def add_candidates(items):
     good = []
