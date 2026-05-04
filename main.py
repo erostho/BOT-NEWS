@@ -6,7 +6,8 @@ import logging
 import threading
 from pathlib import Path
 from datetime import datetime, timezone
-
+import urllib.parse
+import feedparser
 import requests
 from dotenv import load_dotenv
 
@@ -55,7 +56,11 @@ MAX_SEEN = int(os.getenv("MAX_SEEN", "8000"))
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
+ENABLE_X_STREAM = os.getenv("ENABLE_X_STREAM", "false").lower() == "true"
+ENABLE_RSS = os.getenv("ENABLE_RSS", "true").lower() == "true"
 
+X_SEARCH_INTERVAL = int(os.getenv("X_SEARCH_INTERVAL", "120"))
+RSS_INTERVAL = int(os.getenv("RSS_INTERVAL", "120"))
 # =====================
 # LOGGING
 # =====================
@@ -768,8 +773,96 @@ def start_x_stream():
         except Exception as e:
             logger.exception("[X] stream crashed: %s", e)
             time.sleep(30)
+def fetch_x_search():
+    if not ENABLE_X or not TWITTER_BEARER:
+        return []
 
+    if not tweepy:
+        logger.warning("[X_SEARCH] tweepy not installed")
+        return []
 
+    query = (
+        '(Hormuz OR "Strait of Hormuz" OR "Persian Gulf" OR '
+        '"Iran missile" OR "US Navy" OR CENTCOM OR warship OR tanker) '
+        '-is:retweet lang:en'
+    )
+
+    try:
+        client = tweepy.Client(
+            bearer_token=TWITTER_BEARER,
+            wait_on_rate_limit=True
+        )
+
+        resp = client.search_recent_tweets(
+            query=query,
+            max_results=10,
+            tweet_fields=["created_at", "author_id"]
+        )
+
+        tweets = resp.data or []
+        items = []
+
+        for t in tweets:
+            items.append(
+                normalize_item(
+                    source="X",
+                    title=t.text,
+                    text=t.text,
+                    url=f"https://x.com/i/web/status/{t.id}",
+                    raw_source="X Search",
+                    published_at=str(t.created_at) if getattr(t, "created_at", None) else utc_now(),
+                )
+            )
+
+        logger.info("[X_SEARCH] fetched=%s", len(items))
+        return items
+
+    except Exception as e:
+        logger.exception("[X_SEARCH] error: %s", e)
+        return []
+def fetch_rss_feeds():
+    if not ENABLE_RSS:
+        return []
+
+    queries = [
+        'site:reuters.com Hormuz OR "Strait of Hormuz" OR "Iran missile" OR "US Navy"',
+        'site:aljazeera.com Hormuz OR "Strait of Hormuz" OR "Iran missile" OR "US Navy"',
+        'site:bbc.com Hormuz OR "Strait of Hormuz" OR "Iran missile" OR "US Navy"',
+        'site:cnbc.com Hormuz OR "Strait of Hormuz" OR "Iran missile" OR "US Navy"',
+    ]
+
+    items = []
+
+    for q in queries:
+        encoded = urllib.parse.quote(q)
+        url = f"https://news.google.com/rss/search?q={encoded}&hl=en-US&gl=US&ceid=US:en"
+
+        try:
+            feed = feedparser.parse(url)
+
+            for entry in feed.entries[:10]:
+                source_title = ""
+
+                if hasattr(entry, "source"):
+                    source_title = getattr(entry.source, "title", "")
+
+                items.append(
+                    normalize_item(
+                        source="RSS",
+                        title=entry.get("title", ""),
+                        text=entry.get("summary", ""),
+                        url=entry.get("link", ""),
+                        raw_source=source_title or "Google News RSS",
+                        published_at=entry.get("published", ""),
+                    )
+                )
+
+            logger.info("[RSS] query=%s fetched=%s", q[:30], len(feed.entries))
+
+        except Exception as e:
+            logger.warning("[RSS] error query=%s err=%s", q, e)
+
+    return items
 def drain_x_buffer():
     with buffer_lock:
         items = list(x_buffer)
@@ -788,17 +881,24 @@ def run_worker():
     load_seen()
 
     logger.info("===== GEO REALTIME WORKER STARTED =====")
-    logger.info("X=%s | GDELT=%s | REDDIT=%s | NEWSAPI=%s", ENABLE_X, ENABLE_GDELT, ENABLE_REDDIT, ENABLE_NEWSAPI)
+    logger.info(
+        "X=%s | X_STREAM=%s | RSS=%s | GDELT=%s | REDDIT=%s | NEWSAPI=%s",
+        ENABLE_X, ENABLE_X_STREAM, ENABLE_RSS, ENABLE_GDELT, ENABLE_REDDIT, ENABLE_NEWSAPI
+    )
     logger.info("Intervals: GDELT=%ss | Reddit=%ss | NewsAPI=%ss", GDELT_INTERVAL, REDDIT_INTERVAL, NEWSAPI_INTERVAL)
 
-    if ENABLE_X and TWITTER_BEARER:
+    if ENABLE_X and ENABLE_X_STREAM and TWITTER_BEARER:
         t = threading.Thread(target=start_x_stream, daemon=True)
         t.start()
+    else:
+        logger.info("[X] stream disabled, using X search polling")
 
     last_gdelt = 0
     last_reddit = 0
     last_newsapi = 0
-
+    last_x_search = 0
+    last_rss = 0
+    
     while True:
         try:
             now = time.time()
@@ -806,7 +906,13 @@ def run_worker():
 
             # Realtime X buffer
             all_items += drain_x_buffer()
-
+            if ENABLE_X and not ENABLE_X_STREAM and now - last_x_search >= X_SEARCH_INTERVAL:
+                all_items += fetch_x_search()
+                last_x_search = now
+            
+            if ENABLE_RSS and now - last_rss >= RSS_INTERVAL:
+                all_items += fetch_rss_feeds()
+                last_rss = now
             # Smart polling
             if ENABLE_GDELT and now - last_gdelt >= GDELT_INTERVAL:
                 all_items += fetch_gdelt()
