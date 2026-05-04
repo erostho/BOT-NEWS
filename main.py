@@ -199,6 +199,36 @@ def detect_cluster(items):
         return "Iran geopolitical tension"
 
     return "Geopolitical event"
+
+# =====================
+# ACTION DECISION
+# =====================
+
+def build_action(items):
+    text = " ".join([full_text(i) for i in items])
+
+    # check nguồn uy tín
+    has_high = any(
+        any(x in i.get("raw_source", "").lower() for x in TRUST_HIGH)
+        for i in items
+    )
+
+    has_attack = any(k in text for k in ["missile", "attack", "strike", "warship"])
+    has_hormuz = "hormuz" in text
+
+    # ===== LOGIC =====
+
+    if has_attack and has_high:
+        return "EXECUTE (đã confirm)"
+
+    if has_hormuz and not has_high:
+        return "WAIT (chưa confirm)"
+
+    if has_hormuz and has_high:
+        return "PREPARE (có thể vào)"
+
+    return "WAIT (chưa rõ)"
+    
 def utc_now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
@@ -378,7 +408,11 @@ def build_digest(items):
     msg += f"🛢 Oil: {oil}\n"
     msg += f"₿ BTC: {btc}\n"
     msg += f"💵 USD: {usd}\n"
-
+    # ACTION
+    action = build_action(items)
+    
+    msg += "\n🎯 ACTION:\n"
+    msg += f"- {action}\n"
     # CLUSTER
     cluster = detect_cluster(items)
     msg += f"\n📦 CLUSTER: {cluster} ({len(items)} sources)\n\n"
