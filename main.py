@@ -261,7 +261,7 @@ def flush_instant_if_ready(force=False):
     items = sorted(items, key=lambda x: x.get("score", 0), reverse=True)
     items = items[:5]
 
-    msg = build_digest(items)
+    msg = build_digest(items, alert_type="INSTANT")
 
     if msg and send_telegram(msg):
         instant_last_sent = now
@@ -650,7 +650,7 @@ def send_telegram(text):
 # FORMAT DIGEST
 # =====================
 
-def build_digest(items):
+def build_digest(items, alert_type="NORMAL"):
     if not items:
         return None
 
@@ -658,6 +658,10 @@ def build_digest(items):
     top_items = items[:3]
 
     msg = "🔥 BREAKING GEO ALERT\n\n"
+    if alert_type == "INSTANT":
+        msg += "⚡ TYPE: INSTANT MARKET-MOVING EVENT\n\n"
+    else:
+        msg += "🧾 TYPE: NORMAL GEO DIGEST\n\n"
     flash = build_flash_flag(items)
     if flash:
         msg += f"{flash}\n"
@@ -778,7 +782,7 @@ def flush_digest_if_ready(force=False):
     items.sort(key=lambda x: x["score"], reverse=True)
     items = items[:DIGEST_LIMIT]
 
-    digest = build_digest(items)
+    digest = build_digest(items, alert_type="NORMAL")
 
     if digest and send_telegram(digest):
         last_sent_at = now
