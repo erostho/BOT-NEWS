@@ -1191,7 +1191,7 @@ def run_worker():
     global last_sent_at
 
     load_seen()
-    init_telegram_client()
+    #init_telegram_client()
     logger.info("===== GEO REALTIME WORKER STARTED =====")
     logger.info(
         "X=%s | X_STREAM=%s | RSS=%s | GDELT=%s | REDDIT=%s | NEWSAPI=%s",
@@ -1215,8 +1215,8 @@ def run_worker():
         try:
             now = time.time()
             all_items = []
-            if ENABLE_TG_SOURCE:
-                all_items += fetch_telegram_channels()
+            #if ENABLE_TG_SOURCE:
+                #all_items += fetch_telegram_channels()
             # Realtime X buffer
             all_items += drain_x_buffer()
             if ENABLE_X and not ENABLE_X_STREAM and now - last_x_search >= X_SEARCH_INTERVAL:
