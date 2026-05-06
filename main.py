@@ -1,5 +1,6 @@
 import os
 import time
+import re
 import json
 import hashlib
 import logging
@@ -11,6 +12,7 @@ import feedparser
 import requests
 from dotenv import load_dotenv
 from telethon.sync import TelegramClient
+from dateutil import parser
 try:
     import tweepy
 except Exception:
@@ -224,12 +226,13 @@ MAX_NEWS_AGE_MINUTES = int(
     os.getenv("MAX_NEWS_AGE_MINUTES", "30")
 )
 
-
 def is_fresh_item(item):
     pub = item.get("published_at")
 
+    # Nhiều RSS không có giờ chuẩn → không được auto loại
     if not pub:
-        return False
+        item["age_min"] = "unknown"
+        return True
 
     try:
         pub_dt = parser.parse(pub)
@@ -238,7 +241,6 @@ def is_fresh_item(item):
             pub_dt = pub_dt.replace(tzinfo=timezone.utc)
 
         now = datetime.now(timezone.utc)
-
         age_min = (now - pub_dt).total_seconds() / 60
 
         item["age_min"] = round(age_min, 1)
@@ -246,7 +248,9 @@ def is_fresh_item(item):
         return age_min <= MAX_NEWS_AGE_MINUTES
 
     except Exception:
-        return False
+        item["age_min"] = "parse_error"
+        return True
+
 def get_trust_level(item):
     raw = item.get("raw_source", "").lower()
 
@@ -546,10 +550,18 @@ def full_text(item):
 def is_relevant(item):
     text = full_text(item)
     return any(k in text for k in KEYWORDS)
-
+def normalize_title(title):
+    title = (title or "").lower()
+    title = re.sub(r"http\S+", "", title)
+    title = re.sub(r"[^a-z0-9\s]", " ", title)
+    title = re.sub(r"\s+", " ", title)
+    return title.strip()
 
 def make_hash(item):
-    key = f"{item.get('title', '')}|{item.get('url', '')}|{item.get('source', '')}"
+    title_key = normalize_title(item.get("title", ""))
+    source_key = (item.get("raw_source") or item.get("source") or "").lower().strip()
+
+    key = f"{source_key}|{title_key}"
     return hashlib.md5(key.encode("utf-8")).hexdigest()
 
 
