@@ -193,7 +193,11 @@ buffer_lock = threading.Lock()
 
 pending_items = []
 pending_lock = threading.Lock()
+instant_pending = []
+instant_last_sent = 0
+instant_lock = threading.Lock()
 
+INSTANT_COOLDOWN = int(os.getenv("INSTANT_COOLDOWN", "180"))
 last_sent_at = 0
 
 
@@ -232,7 +236,37 @@ def get_market_moving_keys(item):
     p2 = matched_keys(item, P2_MILITARY_KEYS)
     p3 = matched_keys(item, P3_OIL_HORMUZ_KEYS)
     return p1, p2, p3
+def add_instant_item(item):
+    global instant_last_sent
 
+    with instant_lock:
+        instant_pending.append(item)
+
+
+def flush_instant_if_ready(force=False):
+    global instant_last_sent
+
+    now = time.time()
+
+    with instant_lock:
+        if not instant_pending:
+            return
+
+        if not force and now - instant_last_sent < INSTANT_COOLDOWN:
+            return
+
+        items = list(instant_pending)
+        instant_pending.clear()
+
+    items = sorted(items, key=lambda x: x.get("score", 0), reverse=True)
+    items = items[:5]
+
+    msg = build_digest(items)
+
+    if msg and send_telegram(msg):
+        instant_last_sent = now
+        save_seen()
+        logger.info("[INSTANT_DIGEST] sent=%s", len(items))
 
 def is_instant_market_alert(item):
     p1, p2, p3 = get_market_moving_keys(item)
@@ -709,10 +743,8 @@ def add_candidates(items):
 
         # MODE 1: tin cực mạnh → gửi ngay, không chờ gom
         if is_instant_market_alert(item):
-            logger.info("[INSTANT] push now: %s", item.get("title", "")[:120])
-            msg = build_instant_alert(item)
-            if send_telegram(msg):
-                save_seen()
+            logger.info("[INSTANT_QUEUE] queued: %s", item.get("title", "")[:120])
+            add_instant_item(item)
             continue
 
         # MODE 2: tin thường → gom, nhưng siết điểm để giảm spam
@@ -1213,7 +1245,7 @@ def run_worker():
                 logger.info("[CANDIDATES] added=%s", added)
 
             flush_digest_if_ready()
-
+            flush_instant_if_ready()
             logger.info("[ALIVE] worker alive | seen=%s", len(seen_hashes))
 
         except Exception as e:
