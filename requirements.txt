@@ -4,3 +4,4 @@ tweepy
 praw
 python-dotenv
 feedparser
+python-dateutil
