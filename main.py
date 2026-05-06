@@ -104,7 +104,83 @@ SOURCE_BOOST = {
     "Reddit": 1,
 }
 
+# =====================
+# MARKET MOVING ENGINE
+# =====================
 
+P1_INSTANT_KEYS = [
+    # Trump direct / near-direct
+    "truth social",
+    "trump posted",
+    "trump wrote",
+    "trump writes",
+    "trump announced",
+    "trump orders",
+    "trump threatens",
+    "@realdonaldtrump",
+
+    # War declaration / ceasefire
+    "declares war",
+    "declaration of war",
+    "ceasefire",
+    "temporary ceasefire",
+    "truce",
+    "peace talks",
+    "peace proposal",
+    "pause operation",
+]
+
+P2_MILITARY_KEYS = [
+    "exchange fire",
+    "exchanged fire",
+    "missile strike",
+    "drone strike",
+    "air strike",
+    "warship hit",
+    "warship attacked",
+    "under attack",
+    "sinking",
+    "shot down",
+    "shoot down",
+    "intercepted missile",
+    "intercepted drone",
+    "us strikes iran",
+    "iran strikes us",
+    "iran attacks us",
+    "us attacks iran",
+    "centcom confirms",
+    "centcom denies",
+]
+
+P3_OIL_HORMUZ_KEYS = [
+    "strait of hormuz",
+    "hormuz closure",
+    "strait closure",
+    "blockade",
+    "naval blockade",
+    "oil tanker attacked",
+    "tanker attacked",
+    "shipping disruption",
+    "reopen the strait",
+    "fujairah",
+    "oil port",
+]
+
+SOFT_SUPPRESS_KEYS = [
+    "analysis",
+    "analyzing",
+    "opinion",
+    "commentary",
+    "explainer",
+    "what to know",
+    "what we know",
+    "interview",
+    "podcast",
+    "editorial",
+    "column",
+    "timeline",
+    "background",
+]
 # =====================
 # MEMORY
 # =====================
@@ -146,30 +222,99 @@ def get_trust_level(item):
     if any(x in raw for x in TRUST_MEDIUM):
         return "⚠️ MEDIUM TRUST"
     return "❓ LOW TRUST"
+def matched_keys(item, keys):
+    text = full_text(item)
+    return [k for k in keys if k in text]
+
+
+def get_market_moving_keys(item):
+    p1 = matched_keys(item, P1_INSTANT_KEYS)
+    p2 = matched_keys(item, P2_MILITARY_KEYS)
+    p3 = matched_keys(item, P3_OIL_HORMUZ_KEYS)
+    return p1, p2, p3
+
+
+def is_instant_market_alert(item):
+    p1, p2, p3 = get_market_moving_keys(item)
+
+    # Trump / ceasefire / war declaration: gửi ngay
+    if p1:
+        return True
+
+    # Mỹ - Iran bắn nhau / bắn hạ / tấn công: gửi ngay
+    if p2:
+        return True
+
+    # Hormuz/oil shock chỉ gửi ngay nếu đi kèm military hoặc source mạnh
+    if p3:
+        trust = get_trust_level(item)
+        if "HIGH TRUST" in trust:
+            return True
+
+    return False
+
+
+def is_soft_suppressed(item):
+    text = full_text(item)
+
+    # Nếu có key cực mạnh thì không suppress
+    if is_instant_market_alert(item):
+        return False
+
+    return any(k in text for k in SOFT_SUPPRESS_KEYS)
 
 
 def build_quick_take(items):
-    text = " ".join([full_text(i) for i in items])
     lines = []
+    all_text = " ".join([full_text(i) for i in items])
 
-    if "hormuz" in text:
-        lines.append("Iran đang siết kiểm soát Hormuz")
+    p1_all, p2_all, p3_all = [], [], []
 
-    if "tanker" in text or "oil" in text:
-        lines.append("Nguy cơ gián đoạn nguồn cung dầu")
+    for item in items:
+        p1, p2, p3 = get_market_moving_keys(item)
+        p1_all += p1
+        p2_all += p2
+        p3_all += p3
 
-    if any(k in text for k in ["missile", "attack", "warship"]):
-        lines.append("Có dấu hiệu leo thang quân sự")
+    if any(k in all_text for k in ["truth social", "trump posted", "trump wrote", "trump writes", "@realdonaldtrump"]):
+        lines.append("Trump/Truth Social có phát ngôn trực tiếp → ưu tiên cực cao")
+
+    if any(k in all_text for k in ["trump announced", "trump orders", "trump threatens"]):
+        lines.append("Trump có tuyên bố/hành động chính sách mới → market dễ phản ứng mạnh")
+
+    if any(k in all_text for k in ["exchange fire", "exchanged fire"]):
+        lines.append("Mỹ/Iran có dấu hiệu giao tranh trực tiếp")
+
+    if any(k in all_text for k in ["shot down", "shoot down", "sinking", "warship hit", "warship attacked"]):
+        lines.append("Có tin bắn hạ/tấn công tàu hoặc khí tài quân sự")
+
+    if any(k in all_text for k in ["missile strike", "drone strike", "air strike"]):
+        lines.append("Có tin tấn công tên lửa/drone/không kích")
+
+    if any(k in all_text for k in ["declares war", "declaration of war"]):
+        lines.append("Có ngôn ngữ tuyên chiến / leo thang cực mạnh")
+
+    if any(k in all_text for k in ["ceasefire", "truce", "peace talks", "peace proposal", "pause operation"]):
+        lines.append("Có yếu tố hoà bình/tạm ngừng bắn → có thể làm dầu/vàng hạ nhiệt")
+
+    if any(k in all_text for k in ["hormuz closure", "strait closure", "blockade", "naval blockade"]):
+        lines.append("Rủi ro phong toả Hormuz / gián đoạn vận tải dầu")
+
+    if any(k in all_text for k in ["oil tanker attacked", "tanker attacked", "shipping disruption", "fujairah", "oil port"]):
+        lines.append("Rủi ro tanker/cảng dầu/chuỗi cung ứng năng lượng")
 
     has_high = any(
-        any(x in i.get("raw_source", "").lower() for x in TRUST_HIGH)
+        "HIGH TRUST" in get_trust_level(i)
         for i in items
     )
 
     if not has_high:
-        lines.append("CHƯA có xác nhận từ Reuters/AP")
+        lines.append("CHƯA có xác nhận từ Reuters/AP/Bloomberg/BBC/CNA")
 
-    return lines
+    if not lines:
+        lines.append("Tin địa chính trị liên quan Hormuz/Iran/Mỹ nhưng chưa có trigger cực mạnh")
+
+    return lines[:5]
 
 
 def build_market_bias(items):
@@ -204,6 +349,8 @@ def detect_cluster(items):
         return "Iran geopolitical tension"
 
     return "Geopolitical event"
+
+
 
 # =====================
 # ACTION DECISION
@@ -534,7 +681,12 @@ def build_digest(items):
         msg += "Có nguồn uy tín đưa tin, nhưng vẫn cần xác nhận phản ứng giá trước khi vào lệnh."
 
     return msg
+def build_instant_alert(item):
+    item = dict(item)
+    if "score" not in item:
+        item["score"] = score_item(item)
 
+    return build_digest([item])
 def add_candidates(items):
     good = []
 
@@ -548,12 +700,25 @@ def add_candidates(items):
         if is_duplicate(item):
             continue
 
-        score = score_item(item)
-
-        if score < MIN_SCORE:
+        if is_soft_suppressed(item):
+            logger.info("[SUPPRESS] skipped soft article: %s", item.get("title", "")[:120])
             continue
 
+        score = score_item(item)
         item["score"] = score
+
+        # MODE 1: tin cực mạnh → gửi ngay, không chờ gom
+        if is_instant_market_alert(item):
+            logger.info("[INSTANT] push now: %s", item.get("title", "")[:120])
+            msg = build_instant_alert(item)
+            if send_telegram(msg):
+                save_seen()
+            continue
+
+        # MODE 2: tin thường → gom, nhưng siết điểm để giảm spam
+        if score < max(MIN_SCORE, 12):
+            continue
+
         good.append(item)
 
     if good:
