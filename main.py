@@ -217,7 +217,36 @@ TRUST_MEDIUM = [
     "al jazeera", "guardian", "cnn", "globalsecurity",
     "capitalgazette", "leadertelegram"
 ]
+from datetime import datetime, timezone
 
+
+MAX_NEWS_AGE_MINUTES = int(
+    os.getenv("MAX_NEWS_AGE_MINUTES", "30")
+)
+
+
+def is_fresh_item(item):
+    pub = item.get("published_at")
+
+    if not pub:
+        return False
+
+    try:
+        pub_dt = parser.parse(pub)
+
+        if not pub_dt.tzinfo:
+            pub_dt = pub_dt.replace(tzinfo=timezone.utc)
+
+        now = datetime.now(timezone.utc)
+
+        age_min = (now - pub_dt).total_seconds() / 60
+
+        item["age_min"] = round(age_min, 1)
+
+        return age_min <= MAX_NEWS_AGE_MINUTES
+
+    except Exception:
+        return False
 def get_trust_level(item):
     raw = item.get("raw_source", "").lower()
 
@@ -656,12 +685,11 @@ def build_digest(items, alert_type="NORMAL"):
 
     items = sorted(items, key=lambda x: x["score"], reverse=True)
     top_items = items[:3]
-
-    msg = "🔥 BREAKING GEO ALERT\n\n"
     if alert_type == "INSTANT":
         msg += "⚡ TYPE: INSTANT MARKET-MOVING EVENT\n\n"
     else:
         msg += "🧾 TYPE: NORMAL GEO DIGEST\n\n"
+    msg = "🔥 BREAKING GEO ALERT\n\n"       
     flash = build_flash_flag(items)
     if flash:
         msg += f"{flash}\n"
@@ -734,7 +762,13 @@ def add_candidates(items):
 
         if not is_relevant(item):
             continue
-
+        if not is_fresh_item(item):
+            logger.info(
+                "[STALE] skipped old news age=%s title=%s",
+                item.get("age_min"),
+                item.get("title", "")[:80]
+            )
+            continue
         if is_duplicate(item):
             continue
 
